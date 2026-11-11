@@ -65,20 +65,27 @@ class MainActivity : ComponentActivity() {
     private lateinit var root: FrameLayout
     private var currentNotice: TextView? = null
     private var offlineMode = false
+    private var renderedWebsite = false
     private var lastPagePath = "/"
     private val connectivity by lazy { getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager }
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onLost(network: Network) {
             runOnUiThread {
                 if (::web.isInitialized && !isNetworkAvailable()) {
-                    showOffline()
-                    showTopMessage("انقطع الاتصال. بعض الخدمات غير متاحة الآن.")
+                    // Keep the last actual screen in memory; no offline page replacement.
+                    web.settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
                 }
             }
         }
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
             if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-                runOnUiThread { if (::root.isInitialized && offlineMode) showTopMessage("عاد الاتصال. اضغط إعادة المحاولة للمتابعة.") }
+                runOnUiThread {
+                    if (::web.isInitialized) web.settings.cacheMode = WebSettings.LOAD_DEFAULT
+                    if (::web.isInitialized && offlineMode) {
+                        offlineMode = false
+                        web.loadUrl(base + lastPagePath)
+                    }
+                }
             }
         }
     }
@@ -160,6 +167,7 @@ class MainActivity : ComponentActivity() {
                     when (payload.optString("action")) {
                         "googleSignIn" -> payload.optString("requestId").take(96).takeIf { it.isNotEmpty() }?.let { googleSignIn(it) }
                         "openExternal" -> openExternal(payload.optString("url"))
+                        "shareLink" -> shareNativeLink(payload)
                         "downloadProject" -> startDownload(payload)
                         "openDownload" -> openDownload(payload.optString("requestId"))
                         "requestPushToken" -> sendPushToken()
@@ -182,6 +190,7 @@ class MainActivity : ComponentActivity() {
                 super.onPageFinished(view, url)
                 if (Uri.parse(url).host == domain) {
                     offlineMode = false
+                    renderedWebsite = true
                     rememberPath(url)
                     sendPushToken()
                 }
@@ -190,9 +199,9 @@ class MainActivity : ComponentActivity() {
                 if (request.isForMainFrame && request.url.host == domain) {
                     if (error.errorCode == ERROR_FAILED_SSL_HANDSHAKE) {
                         showTopMessage("تعذّر تأمين الاتصال بالخادم. حاول مجددًا لاحقًا.")
-                    } else {
+                    } else if (!renderedWebsite) {
+                        // No previously rendered NEXBOTS page: show branded fallback.
                         showOffline()
-                        showTopMessage("تعذّر تحميل الصفحة. تحقق من الاتصال ثم أعد المحاولة.")
                     }
                 }
             }
@@ -254,8 +263,13 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
-        lastPagePath = safePath(intent?.getStringExtra("path"))
-        if (isNetworkAvailable()) web.loadUrl(base + lastPagePath) else showOffline()
+        val remembered = getSharedPreferences("nexbots_android", MODE_PRIVATE)
+            .getString("last_page_path", "/")
+        lastPagePath = pathFromIntent(intent) ?: safePath(remembered)
+        web.settings.cacheMode = if (isNetworkAvailable()) WebSettings.LOAD_DEFAULT
+                                 else WebSettings.LOAD_CACHE_ELSE_NETWORK
+        // Prefer the real cached app shell on cold offline launches.
+        web.loadUrl(base + lastPagePath)
         try { connectivity.registerDefaultNetworkCallback(networkCallback) } catch (_: Exception) { /* WebView error handling is the fallback. */ }
         @Suppress("DEPRECATION")
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
@@ -266,23 +280,51 @@ class MainActivity : ComponentActivity() {
         FirebaseMessaging.getInstance().subscribeToTopic("nexbots_announcements")
     }
 
-    private fun safePath(path: String?): String = if (path != null && (path == "/private" || path == "/" || Regex("/private/t/[A-Za-z0-9_-]{1,80}").matches(path) || Regex("/project/[A-Za-z0-9_-]{1,128}").matches(path)) && !path.contains("//") && !path.contains("..")) path else "/"
+    // Accept links from the verified NEXBOTS origin only.
+    private fun safePath(path: String?): String {
+        if (path.isNullOrBlank() || path.length > 320 || path.contains("//") || path.contains("..")) return "/"
+        val fixed = setOf("/", "/explore", "/plans", "/support", "/verification",
+            "/account", "/chat", "/private", "/upload", "/admin")
+        if (path in fixed) return path
+        if (Regex("/(?:u|project)/[A-Za-z0-9_-]{1,128}").matches(path) ||
+            Regex("/private/t/[A-Za-z0-9_-]{1,80}").matches(path)) return path
+        return "/"
+    }
+
+    private fun pathFromIntent(intent: Intent?): String? {
+        if (intent == null) return null
+        if (intent.action == Intent.ACTION_VIEW) {
+            val url = intent.data ?: return null
+            if (url.scheme != "https" || url.host != domain || url.port != -1) return null
+            return safePath(url.encodedPath ?: "/")
+        }
+        return intent.getStringExtra("path")?.let(::safePath)
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra("path")?.let {
-            lastPagePath = safePath(it)
-            if (isNetworkAvailable()) web.loadUrl(base + lastPagePath) else showOffline()
+        pathFromIntent(intent)?.let {
+            lastPagePath = it
+            getSharedPreferences("nexbots_android", MODE_PRIVATE).edit()
+                .putString("last_page_path", it).apply()
+            web.settings.cacheMode = if (isNetworkAvailable()) WebSettings.LOAD_DEFAULT
+                                     else WebSettings.LOAD_CACHE_ELSE_NETWORK
+            web.loadUrl(base + it)
         }
     }
 
     private fun rememberPath(url: String?) {
         val uri = try { Uri.parse(url) } catch (_: Exception) { return }
         if (uri?.scheme == "https" && uri.host == domain) {
-            // Preserve the last page, but never cache its contents or any account tokens.
+            // Persist just an internal route, not private HTML or credentials.
             val route = uri.encodedPath ?: "/"
-            if (route.length < 320 && !route.contains("..") && !route.contains("//")) lastPagePath = route
+            val safe = safePath(route)
+            if (safe == route) {
+                lastPagePath = safe
+                getSharedPreferences("nexbots_android", MODE_PRIVATE).edit()
+                    .putString("last_page_path", safe).apply()
+            }
         }
     }
 
@@ -455,6 +497,25 @@ class MainActivity : ComponentActivity() {
         "zip" -> "application/zip"; "pdf" -> "application/pdf"
         "json" -> "application/json"; "js", "ts", "jsx", "tsx", "py", "php", "txt" -> "text/plain"
         else -> "application/octet-stream"
+    }
+
+    private fun shareNativeLink(payload: JSONObject) {
+        val url = try { Uri.parse(payload.optString("url")) } catch (_: Exception) { return }
+        if (url.scheme != "https" || url.host != domain || url.port != -1) return
+        val path = url.encodedPath ?: return
+        if (path != safePath(path) ||
+            !(path.startsWith("/u/") || path.startsWith("/project/"))) return
+        val title = payload.optString("title").take(90).ifBlank { "NEXBOTS" }
+        try {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, base + path)
+                putExtra(Intent.EXTRA_SUBJECT, title)
+            }
+            startActivity(Intent.createChooser(send, "مشاركة عبر"))
+        } catch (_: Exception) {
+            showTopMessage("تعذّر فتح المشاركة على هذا الجهاز.")
+        }
     }
 
     private fun openExternal(link: String) {
