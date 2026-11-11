@@ -167,6 +167,7 @@ class MainActivity : ComponentActivity() {
                     when (payload.optString("action")) {
                         "googleSignIn" -> payload.optString("requestId").take(96).takeIf { it.isNotEmpty() }?.let { googleSignIn(it) }
                         "openExternal" -> openExternal(payload.optString("url"))
+                        "shareLink" -> shareNativeLink(payload)
                         "downloadProject" -> startDownload(payload)
                         "openDownload" -> openDownload(payload.optString("requestId"))
                         "requestPushToken" -> sendPushToken()
@@ -496,6 +497,25 @@ class MainActivity : ComponentActivity() {
         "zip" -> "application/zip"; "pdf" -> "application/pdf"
         "json" -> "application/json"; "js", "ts", "jsx", "tsx", "py", "php", "txt" -> "text/plain"
         else -> "application/octet-stream"
+    }
+
+    private fun shareNativeLink(payload: JSONObject) {
+        val url = try { Uri.parse(payload.optString("url")) } catch (_: Exception) { return }
+        if (url.scheme != "https" || url.host != domain || url.port != -1) return
+        val path = url.encodedPath ?: return
+        if (path != safePath(path) ||
+            !(path.startsWith("/u/") || path.startsWith("/project/"))) return
+        val title = payload.optString("title").take(90).ifBlank { "NEXBOTS" }
+        try {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, base + path)
+                putExtra(Intent.EXTRA_SUBJECT, title)
+            }
+            startActivity(Intent.createChooser(send, "مشاركة عبر"))
+        } catch (_: Exception) {
+            showTopMessage("تعذّر فتح المشاركة على هذا الجهاز.")
+        }
     }
 
     private fun openExternal(link: String) {
