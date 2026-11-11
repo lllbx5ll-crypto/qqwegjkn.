@@ -86,8 +86,32 @@ class MainActivity : ComponentActivity() {
     private val downloads = linkedMapOf<String, Long>()
     private var uploadResult: ValueCallback<Array<Uri>>? = null
     private val chooseFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        uploadResult?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
+        val callback = uploadResult
         uploadResult = null
+        val uris = if (result.resultCode == RESULT_OK)
+            WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+            else null
+        if (uris.isNullOrEmpty()) {
+            callback?.onReceiveValue(null)
+        } else {
+            // Persist the SAF read grant before returning the content:// reference
+            // to Chromium, which may read it much later during story-video upload.
+            // Some third-party providers only offer temporary grants.
+            uris.forEach { uri ->
+                if (uri.scheme == "content") {
+                    try {
+                        contentResolver.takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (_: SecurityException) {
+                        // A temporary grant is still valid for immediate use.
+                    } catch (_: IllegalArgumentException) {
+                        // Provider did not offer a persistable document grant.
+                    }
+                }
+            }
+            callback?.onReceiveValue(uris)
+        }
     }
     private val requestNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (!granted) Toast.makeText(this, "يمكن تفعيل الإشعارات من إعدادات التطبيق لاحقاً", Toast.LENGTH_LONG).show()
@@ -175,10 +199,38 @@ class MainActivity : ComponentActivity() {
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(view: WebView?, callback: ValueCallback<Array<Uri>>?, params: FileChooserParams?): Boolean {
+                if (params == null || callback == null) return false
                 uploadResult?.onReceiveValue(null)
                 uploadResult = callback
-                return try { chooseFile.launch(requireNotNull(params).createIntent()); true }
-                catch (_: Exception) { uploadResult?.onReceiveValue(null); uploadResult = null; false }
+                // ACTION_OPEN_DOCUMENT returns durable SAF content:// grants,
+                // unlike ACTION_GET_CONTENT used by some default WebView choosers.
+                // Preserve MIME filters and multiple-selection support.
+                val picker = if (params.mode == FileChooserParams.MODE_OPEN ||
+                    params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                    val types = params.acceptTypes
+                        .filter { it.isNotBlank() && it.contains('/') }.distinct()
+                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                        type = if (types.size == 1) types.first() else "*/*"
+                        if (types.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, types.toTypedArray())
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
+                            params.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
+                    }
+                } else params.createIntent()
+                return try {
+                    chooseFile.launch(picker)
+                    true
+                } catch (_: ActivityNotFoundException) {
+                    // Fallback for devices lacking a DocumentsUI provider.
+                    try { chooseFile.launch(params.createIntent()); true }
+                    catch (_: Exception) {
+                        uploadResult?.onReceiveValue(null); uploadResult = null; true
+                    }
+                } catch (_: Exception) {
+                    uploadResult?.onReceiveValue(null); uploadResult = null; true
+                }
             }
             override fun onCreateWindow(view: WebView?, dialog: Boolean, gesture: Boolean, result: android.os.Message?): Boolean {
                 if (!gesture || result == null) return false
