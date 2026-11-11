@@ -19,6 +19,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.PackageInfo
+import java.io.File
+import java.io.FileInputStream
+import java.security.MessageDigest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.core.content.FileProvider
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -91,6 +98,21 @@ class MainActivity : ComponentActivity() {
     }
     private val handler = Handler(Looper.getMainLooper())
     private val downloads = linkedMapOf<String, Long>()
+    private data class AppUpdate(
+        val requestId: String, val id: Long, val versionCode: Long,
+        val sha256: String, val expectedSize: Long, val fileName: String
+    )
+    private val appUpdates = linkedMapOf<Long, AppUpdate>()
+    private var pendingApkInstall: File? = null
+    private val unknownSources = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val candidate = pendingApkInstall
+        pendingApkInstall = null
+        if (candidate != null && (Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())) {
+            launchApkInstaller(candidate)
+        } else if (candidate != null) {
+            showTopMessage("يحتاج تثبيت التحديث إلى موافقتك من إعدادات Android")
+        }
+    }
     private var uploadResult: ValueCallback<Array<Uri>>? = null
     private val chooseFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val callback = uploadResult
@@ -127,6 +149,7 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
             val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            appUpdates[id]?.let { pollAppUpdate(it); return }
             val requestId = downloads.entries.find { it.value == id }?.key ?: return
             // ACTION_DOWNLOAD_COMPLETE also fires for FAILED downloads; do not
             // claim success without checking DownloadManager's actual status.
@@ -170,6 +193,8 @@ class MainActivity : ComponentActivity() {
                         "shareLink" -> shareNativeLink(payload)
                         "downloadProject" -> startDownload(payload)
                         "openDownload" -> openDownload(payload.optString("requestId"))
+                        "getAppVersion" -> replyAppVersion(payload)
+                        "installAppUpdate" -> startAppUpdate(payload)
                         "requestPushToken" -> sendPushToken()
                     }
                 }
@@ -383,6 +408,189 @@ class MainActivity : ComponentActivity() {
     private fun sendPushToken() {
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
             emit("nexbots-native-push-token", JSONObject().put("token", token).put("deviceId", deviceId))
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedVersionCode(): Long {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        return if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+    }
+
+    private fun replyAppVersion(payload: JSONObject) {
+        val id = payload.optString("requestId").take(96)
+        if (id.isBlank()) return
+        @Suppress("DEPRECATION")
+        val installed = packageManager.getPackageInfo(packageName, 0)
+        emit("nexbots-native-app-version", JSONObject()
+            .put("requestId", id)
+            .put("versionCode", installedVersionCode())
+            .put("versionName", installed.versionName ?: ""))
+    }
+
+    private fun appUpdateEvent(id: String, state: String, progress: Int = 0, error: String = "") {
+        val event = JSONObject().put("requestId", id).put("state", state).put("progress", progress)
+        if (error.isNotEmpty()) event.put("error", error)
+        emit("nexbots-native-app-update", event)
+    }
+
+    // Download into this application's own storage; never ask users to open the
+    // Files app. Android Package Installer still requires the user's approval.
+    private fun startAppUpdate(payload: JSONObject) {
+        val requestId = payload.optString("requestId").take(96)
+        val url = payload.optString("url")
+        val version = payload.optLong("versionCode", -1L)
+        val length = payload.optLong("size", -1L)
+        val hash = payload.optString("sha256").lowercase()
+        val uri = try { Uri.parse(url) } catch (_: Exception) { null }
+        if (requestId.isBlank() || uri?.scheme != "https" || uri.host != domain ||
+            uri.path != "/api/app-release/apk" || uri.query != null || uri.fragment != null ||
+            version <= installedVersionCode() || version > Int.MAX_VALUE ||
+            length < 102400L || length > 50L * 1024L * 1024L ||
+            !Regex("[a-f0-9]{64}").matches(hash)) {
+            appUpdateEvent(requestId, "error", error = "رابط التطبيق أو بيانات الإصدار غير صحيحة")
+            return
+        }
+        if (!isNetworkAvailable()) {
+            appUpdateEvent(requestId, "error", error = "اتصل بالإنترنت لتنزيل تحديث التطبيق")
+            return
+        }
+        if (appUpdates.values.any { it.versionCode == version }) {
+            appUpdateEvent(requestId, "error", error = "يجري تنزيل هذا التحديث بالفعل")
+            return
+        }
+        val name = "NEXBOTS-update-${version}-${hash.take(8)}.apk"
+        try {
+            val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                ?: throw IllegalStateException("App download directory unavailable")
+            val file = File(dir, name)
+            if (file.exists()) file.delete()
+            val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+            val request = DownloadManager.Request(uri).apply {
+                setTitle("تحديث تطبيق NEXBOTS")
+                setDescription("حزمة Android الرسمية — سيتم فتح شاشة التثبيت")
+                setMimeType("application/vnd.android.package-archive")
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setAllowedOverMetered(true)
+                setAllowedOverRoaming(false)
+                setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, name)
+            }
+            val id = dm.enqueue(request)
+            val update = AppUpdate(requestId, id, version, hash, length, name)
+            appUpdates[id] = update
+            pollAppUpdate(update)
+        } catch (error: Exception) {
+            appUpdateEvent(requestId, "error", error = "تعذّر بدء تنزيل APK على هذا الجهاز")
+        }
+    }
+
+    private fun pollAppUpdate(update: AppUpdate) {
+        if (!appUpdates.containsKey(update.id) || isFinishing) return
+        val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        try {
+            dm.query(DownloadManager.Query().setFilterById(update.id))?.use { cursor ->
+                if (!cursor.moveToFirst()) {
+                    appUpdates.remove(update.id)
+                    appUpdateEvent(update.requestId, "error", error = "اختفى ملف التنزيل من مدير التنزيلات")
+                    return
+                }
+                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                val bytes = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                val progress = if (total > 0L) ((bytes * 100L) / total).toInt().coerceIn(0, 100) else 0
+                when (status) {
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        appUpdates.remove(update.id)
+                        verifyAndInstall(update)
+                    }
+                    DownloadManager.STATUS_FAILED -> {
+                        appUpdates.remove(update.id)
+                        appUpdateEvent(update.requestId, "error", error = "تعذّر تنزيل ملف التحديث، حاول مجددًا")
+                    }
+                    else -> {
+                        appUpdateEvent(update.requestId, "progress", progress)
+                        handler.postDelayed({ pollAppUpdate(update) }, 750)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            appUpdates.remove(update.id)
+            appUpdateEvent(update.requestId, "error", error = "تعذّر متابعة تنزيل التحديث")
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun validateApkPackage(file: File, expectedVersion: Long): String? {
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+                    else PackageManager.GET_SIGNATURES
+        val archived = packageManager.getPackageArchiveInfo(file.absolutePath, flags)
+            ?: return "لا يمكن قراءة حزمة Android بعد التنزيل"
+        if (archived.packageName != packageName) return "ملف APK يخص تطبيقًا مختلفًا"
+        val actualCode = if (Build.VERSION.SDK_INT >= 28) archived.longVersionCode
+                         else archived.versionCode.toLong()
+        if (actualCode != expectedVersion || actualCode <= installedVersionCode())
+            return "رقم بناء APK لا يطابق الإصدار المنشور أو المثبّت"
+        val installed = packageManager.getPackageInfo(packageName, flags)
+        val candidateSignatures = if (Build.VERSION.SDK_INT >= 28) archived.signingInfo?.apkContentsSigners
+                                  else archived.signatures
+        val installedSignatures = if (Build.VERSION.SDK_INT >= 28) installed.signingInfo?.apkContentsSigners
+                                  else installed.signatures
+        if (candidateSignatures.isNullOrEmpty() || installedSignatures.isNullOrEmpty() ||
+            candidateSignatures.size != installedSignatures.size ||
+            !candidateSignatures.all { candidate ->
+                installedSignatures.any { actual -> candidate.toByteArray().contentEquals(actual.toByteArray()) }
+            }) return "توقيع APK مختلف عن توقيع التطبيق المثبّت؛ لا يمكن تثبيته كتحديث"
+        return null
+    }
+
+    private fun verifyAndInstall(update: AppUpdate) {
+        val file = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), update.fileName)
+        lifecycleScope.launch {
+            val message = withContext(Dispatchers.IO) {
+                if (!file.exists() || file.length() != update.expectedSize)
+                    return@withContext "ملف تحديث NEXBOTS غير مكتمل"
+                val digest = MessageDigest.getInstance("SHA-256")
+                FileInputStream(file).use { stream ->
+                    val chunk = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = stream.read(chunk)
+                        if (n < 0) break
+                        digest.update(chunk, 0, n)
+                    }
+                }
+                val sha = digest.digest().joinToString("") { "%02x".format(it) }
+                if (sha != update.sha256) return@withContext "فشل التحقق من بصمة SHA-256 لملف التحديث"
+                try { validateApkPackage(file, update.versionCode) }
+                catch (_: Exception) { "تعذّر التأكد من هوية وتوقيع APK" }
+            }
+            if (message != null) {
+                appUpdateEvent(update.requestId, "error", error = message)
+                showTopMessage(message)
+                file.delete()
+                return@launch
+            }
+            appUpdateEvent(update.requestId, "ready", 100)
+            launchApkInstaller(file)
+        }
+    }
+
+    private fun launchApkInstaller(file: File) {
+        try {
+            if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                pendingApkInstall = file
+                showTopMessage("اسمح لتطبيق NEXBOTS بتثبيت التحديث من الإعدادات")
+                unknownSources.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                    .setData(Uri.parse("package:$packageName")))
+                return
+            }
+            val contentUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(contentUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            showTopMessage("تعذّر فتح شاشة تثبيت التحديث. تحقق من صلاحيات التثبيت في Android.")
         }
     }
 
