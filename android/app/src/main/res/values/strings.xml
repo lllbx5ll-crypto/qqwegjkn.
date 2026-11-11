@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">NEXBOTS</string>
+  <!-- REPLACE with the Web OAuth client ID from Firebase/Google Cloud, NOT API key or App ID. -->
+  <string name="google_web_client_id">933662316539-fsggagfa9r4hgvuq6un5r671mpotkke5.apps.googleusercontent.com</string>
+</resources>

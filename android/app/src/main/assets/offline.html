@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><title>NEXBOTS</title>
+<style>
+:root{--bg:#090713;--panel:#141023;--line:#322448;--text:#f7f3ff;--muted:#afa5c3;--accent:#a35bff}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;min-height:100svh;font-family:system-ui,'Noto Sans Arabic',sans-serif;color:var(--text);background:radial-gradient(ellipse at 30% 0%,#321850,transparent 56%),var(--bg)}
+header{height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 17px;border-bottom:1px solid var(--line);background:#0b0918ed}header strong{font-size:22px;font-weight:900;letter-spacing:1.5px}header span{font-size:11px;color:#c3b4d7;padding:8px;border:1px solid var(--line);border-radius:30px}
+.app{max-width:600px;margin:auto;padding:16px 18px 130px}.search{height:50px;display:flex;align-items:center;padding:0 18px;margin:12px 0 18px;border:1px solid var(--line);background:#181228;border-radius:14px;color:#9285a9;font-size:13px}
+h1{font-size:27px;margin:20px 0 8px}p{color:var(--muted);font-size:13px;line-height:2} .status{display:flex;align-items:center;gap:9px;border:1px solid #7549b3;background:#29153e;border-radius:14px;padding:13px 15px;margin-top:20px;color:#f0e1ff;font-size:13px}.dot{background:#e8af68;border-radius:50%;width:8px;height:8px;flex-shrink:0}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:20px 0}.tile{min-height:125px;border:1px solid var(--line);background:linear-gradient(155deg,#251533,#171120);border-radius:18px;padding:17px;display:flex;flex-direction:column;justify-content:space-between}.glyph{font-size:28px;color:#c38cff}.tile small{font-size:10px;color:#998aaa}.tile strong{font-size:14px}.blank{height:95px;border-radius:15px;background:linear-gradient(100deg,#19132b,#201731,#181327);border:1px solid var(--line);margin:11px 0}.action{width:100%;min-height:49px;background:linear-gradient(120deg,#a85aff,#7632e9);color:white;border:0;border-radius:13px;font-weight:800;font:inherit;cursor:pointer;margin-top:12px}
+nav{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,1fr);background:#100c1eea;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);backdrop-filter:blur(14px)}nav button{min-height:66px;background:transparent;color:#ab9bbf;border:0;font:11px system-ui;cursor:pointer;display:flex;align-items:center;gap:5px;justify-content:center;flex-direction:column}nav button span{font-size:22px}nav button[aria-current=page]{color:#d5b3ff;background:#2a1643}
+#toast{position:fixed;z-index:20;top:calc(env(safe-area-inset-top) + 12px);left:12px;right:12px;margin:auto;max-width:520px;display:none;border:1px solid #9f64ec;border-radius:16px;padding:14px 17px;background:#2d1845;color:#fff;box-shadow:0 10px 40px #0009;text-align:center;font-size:13px;line-height:1.7}#toast.show{display:block}
+</style></head>
+<body>
+<header><strong>NEXBOTS</strong><span>● وضع دون اتصال</span></header>
+<div class="app"><div class="search">⌕ &nbsp; استكشاف NEXBOTS</div>
+<h1 id="heading">الرئيسية</h1><p id="subheading">تصفح أقسام المنصة. المحتوى المباشر غير متاح الآن.</p>
+<div class="status"><i class="dot"></i><div>أنت غير متصل حاليًا. لن تظهر بيانات جديدة أو خاصة ولن تُنفذ أي عمليات.</div></div>
+<section class="tiles" aria-label="أقسام NEXBOTS"><div class="tile"><span class="glyph">◇</span><strong>المشاريع</strong><small>تتطلب اتصالًا لعرض المحتوى</small></div><div class="tile"><span class="glyph">◉</span><strong>المجتمع</strong><small>لا توجد رسائل دون اتصال</small></div></section>
+<div class="blank" aria-hidden="true"></div><div class="blank" aria-hidden="true"></div>
+<button class="action" id="retry" type="button">↻ &nbsp; إعادة المحاولة</button>
+</div>
+<nav aria-label="التنقل"><button type="button" data-section="/" aria-current="page"><span>⌂</span>الرئيسية</button><button type="button" data-section="/explore"><span>◇</span>استكشاف</button><button type="button" data-section="/chat"><span>☏</span>المجتمع</button><button type="button" data-section="/private"><span>✉</span>الخاص</button><button type="button" data-section="/account"><span>◉</span>حسابي</button></nav>
+<div id="toast" role="alert" aria-live="assertive"></div>
+<script>
+(function(){
+'use strict';
+const sections={'/':['الرئيسية','تصفح أقسام المنصة. المحتوى المباشر غير متاح الآن.'],'/explore':['استكشاف المشاريع','ستظهر المشاريع الجديدة بعد استعادة الاتصال.'],'/chat':['شات المجتمع','المحادثات والرسائل لا يمكن تحميلها أو إرسالها دون اتصال.'],'/private':['الرسائل الخاصة','حمايةً لخصوصيتك لا تُعرض الرسائل الخاصة هنا دون اتصال.'],'/account':['حسابي','يلزم اتصال بالإنترنت لعرض معلومات حسابك وتحديثها.']};
+let path='/';const toast=document.getElementById('toast');let noticeTimer;
+function warn(text){toast.textContent=text;toast.classList.add('show');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>toast.classList.remove('show'),3900);}
+function select(target){path=sections[target]?target:'/';document.getElementById('heading').textContent=sections[path][0];document.getElementById('subheading').textContent=sections[path][1];document.querySelectorAll('nav button').forEach(el=>{if(el.dataset.section===path)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});if(path!=='/')warn('هذا القسم يحتاج اتصالًا بالإنترنت. يمكنك إعادة المحاولة عند عودة الشبكة.');}
+document.querySelectorAll('nav button').forEach(btn=>btn.addEventListener('click',()=>select(btn.dataset.section)));
+document.querySelectorAll('.tile,.search').forEach(el=>el.addEventListener('click',()=>warn('تعذّر تنفيذ العملية دون اتصال بالإنترنت.')));
+document.getElementById('retry').addEventListener('click',()=>{toast.classList.remove('show');document.getElementById('retry').textContent='جارٍ التحقق من الاتصال...';location.replace('https://nexbots.pages.dev'+path);});
+const requested=new URLSearchParams(location.search).get('path');if(requested && sections[requested])select(requested);
+})();
+</script></body></html>
