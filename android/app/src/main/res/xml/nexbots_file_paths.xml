@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Share only the APK stored in our app-specific Download folder. -->
+    <external-files-path name="nexbots_apk_updates" path="Download/"/>
+</paths>
