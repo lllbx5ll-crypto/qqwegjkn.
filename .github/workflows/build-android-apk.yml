@@ -105,7 +105,8 @@ jobs:
             chmod 600 app/debug.keystore
             echo 'Stable test signing configured'
           else
-            echo 'Using default debug signing'
+            echo "::warning title=Google Sign-In and signing::NEXBOTS_TEST_KEYSTORE_B64 is missing. This runner generates a fresh debug certificate, so each new APK has a different SHA-1 and cannot update an APK signed with another certificate. Register the actual SHA-1/SHA-256 shown in this workflow in Firebase and configure a stable signing secret before distributing future builds."
+            echo 'Using temporary debug signing - fingerprint changes between runners'
           fi
 
       - name: Build Android APK
