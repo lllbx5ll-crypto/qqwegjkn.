@@ -10,8 +10,8 @@ android {
         applicationId = "dev.nexbots.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "3.2.0"
+        versionCode = 5
+        versionName = "3.6.0"
     }
     // A single TEST debug key keeps the Firebase SHA fingerprints stable between builds.
     // Never commit app/debug.keystore; keep it private. Release/Play needs its own key.
