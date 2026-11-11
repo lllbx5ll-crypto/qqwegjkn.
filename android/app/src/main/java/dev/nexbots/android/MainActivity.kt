@@ -41,6 +41,9 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -429,10 +432,24 @@ class MainActivity : ComponentActivity() {
                 }
                 val token = GoogleIdTokenCredential.createFrom(credential.data).idToken
                 emit("nexbots-native-google-response", JSONObject().put("requestId", requestId).put("idToken", token))
-            } catch (_: GetCredentialException) {
-                emit("nexbots-native-google-response", JSONObject().put("requestId", requestId).put("error", "لم يكتمل اختيار حساب Google"))
-            } catch (_: Exception) {
-                emit("nexbots-native-google-response", JSONObject().put("requestId", requestId).put("error", "تأكد من إعدادات حساب Google للتطبيق"))
+            } catch (error: GetCredentialException) {
+                // The old generic error concealed OAuth/signing problems after account selection.
+                // Log only the exception class/type, NEVER the Google ID token.
+                android.util.Log.w("NEXBOTS.GoogleSignIn", "Credential Manager: ${error.javaClass.simpleName}; type=${error.type}")
+                val message = when (error) {
+                    is GetCredentialCancellationException ->
+                        "توقفت عملية اختيار حساب Google. إذا اخترت حساباً ولم تلغِ العملية، تأكد من إضافة بصمة SHA-1 الخاصة بتوقيع APK في Firebase."
+                    is GetCredentialProviderConfigurationException ->
+                        "تعذّر تشغيل مزود تسجيل Google. حدّث خدمات Google Play، وتأكد من إعداد تطبيق Android في Firebase."
+                    is NoCredentialException ->
+                        "لم يتم العثور على حساب Google متاح. أضف حساباً للهاتف وحاول مجدداً."
+                    else ->
+                        "تعذّر تسجيل Google (${error.javaClass.simpleName}). تحقق من بصمة SHA-1 وGoogle OAuth في Firebase."
+                }
+                emit("nexbots-native-google-response", JSONObject().put("requestId", requestId).put("error", message))
+            } catch (error: Exception) {
+                android.util.Log.e("NEXBOTS.GoogleSignIn", "Google sign-in failed: ${error.javaClass.simpleName}")
+                emit("nexbots-native-google-response", JSONObject().put("requestId", requestId).put("error", "تعذّر إتمام تسجيل Google. تأكد من إعدادات OAuth أو جرّب تحديث خدمات Google Play."))
             }
         }
     }
