@@ -1,4 +1,6 @@
+
 name: NEXBOTS Android APK
+
 on:
   workflow_dispatch:
   push:
@@ -6,79 +8,129 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/build-android-apk.yml'
+
 permissions:
   contents: read
+
 jobs:
   check-website:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - name: Test website source
         working-directory: site
         run: npm test
+
       - name: Build website
         working-directory: site
         run: |
           npm install --no-audit --no-fund
           npm run build
+
   android-apk:
     needs: check-website
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: android
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Configure Firebase and optional stable test signing
+
+      - name: Configure Firebase and signing
         shell: bash
         env:
           FIREBASE_ANDROID_JSON_B64: ${{ secrets.FIREBASE_ANDROID_JSON_B64 }}
           NEXBOTS_TEST_KEYSTORE_B64: ${{ secrets.NEXBOTS_TEST_KEYSTORE_B64 }}
         run: |
           set -euo pipefail
+
           if [[ -n "$FIREBASE_ANDROID_JSON_B64" ]]; then
-            printf '%s' "$FIREBASE_ANDROID_JSON_B64" | base64 --decode > app/google-services.json
+            printf '%s' "$FIREBASE_ANDROID_JSON_B64" \
+              | base64 --decode > app/google-services.json
           else
             cp firebase-client-config.json app/google-services.json
           fi
+
           python3 - <<'PYVALIDATE'
           import json
-          with open('app/google-services.json',encoding='utf-8') as f:
-              conf=json.load(f)
-          packages=[c.get('client_info',{}).get('android_client_info',{}).get('package_name') for c in conf.get('client',[])]
-          assert 'dev.nexbots.android' in packages, 'Firebase package name mismatch'
-          assert conf.get('project_info',{}).get('project_id')=='exbots', 'Firebase project mismatch'
-          print('Firebase project and Android package validated')
+
+          with open('app/google-services.json', encoding='utf-8') as f:
+              conf = json.load(f)
+
+          packages = [
+              c.get('client_info', {})
+               .get('android_client_info', {})
+               .get('package_name')
+              for c in conf.get('client', [])
+          ]
+
+          assert 'dev.nexbots.android' in packages, \
+              'Firebase package name mismatch'
+
+          assert conf.get('project_info', {}).get('project_id') == 'exbots', \
+              'Firebase project mismatch'
+
+          print('Firebase configuration validated')
           PYVALIDATE
+
           if [[ -n "$NEXBOTS_TEST_KEYSTORE_B64" ]]; then
-            printf '%s' "$NEXBOTS_TEST_KEYSTORE_B64" | base64 --decode > app/debug.keystore
+            printf '%s' "$NEXBOTS_TEST_KEYSTORE_B64" \
+              | base64 --decode > app/debug.keystore
             chmod 600 app/debug.keystore
-            echo 'Using private stable test signing key from GitHub Secrets'
+            echo 'Stable test signing configured'
           else
-            echo 'No stable signing key provided: default debug signing will be used.'
+            echo 'Using default debug signing'
           fi
-      - name: Build installable Android APK
+
+      - name: Build Android APK
         shell: bash
-        run: gradle --no-daemon --stacktrace assembleDebug
-      - name: Show signing certificate fingerprints
+        run: |
+          gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Show signing fingerprints
         shell: bash
         run: |
           set -euo pipefail
+
           KEY="app/debug.keystore"
-          if [[ ! -f "$KEY" ]]; then KEY="$HOME/.android/debug.keystore"; fi
-          keytool -list -v -alias androiddebugkey -keystore "$KEY" -storepass android | grep -E 'SHA1:|SHA256:'
-          echo 'For Google sign-in, register this exact SHA-1 in Firebase and download updated google-services.json.'
+
+          if [[ ! -f "$KEY" ]]; then
+            KEY="$HOME/.android/debug.keystore"
+          fi
+
+          keytool -list -v \
+            -alias androiddebugkey \
+            -keystore "$KEY" \
+            -storepass android \
+            | grep -E 'SHA1:|SHA256:'
+
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
