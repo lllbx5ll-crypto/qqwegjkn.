@@ -1,0 +1,15 @@
+NEXBOTS v3.1.1 — المصدران متكاملان (موقع + أندرويد)
+
+android/ = مشروع Android Studio حقيقي (Kotlin + WebView + تنزيلات Android + FCM).
+site/ = منصة React / Cloudflare Pages.
+
+يستخدم المشروعان Firebase project_id: exbots وAndroid package: dev.nexbots.android.
+يجب نشر تغييرات site/ على موقع Cloudflare لكي يستفيد WebView من تغييرات واجهة المصادقة.
+حفظ جلسة Google: الموقع والتطبيق يشتركان في حساب UID، لكن جلسة كل بيئة منفصلة.
+
+يتطلب تشغيل Google Sign-In على APK حقيقياً تسجيل SHA الخاصة بمفتاح توقيعه لدى Firebase.
+ولنسخة الاختبار المتاحة هنا، راجع android/NEXBOTS_توقيع_الاختبار_وFirebase_AR.md
+ونزّل ملف مفتاح الاختبار المرسل منفصلاً، ولا تنشره كمفتاح إنتاج.
+
+هذا ZIP هو الكود المصدر، وليس APK جاهزاً؛ لم يتوفر Android SDK/Gradle لبناء APK على البيئة الحالية.
+اختبارات موقع NEXBOTS المحلية: 115 ناجحة من 115.

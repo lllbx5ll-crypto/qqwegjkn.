@@ -1,0 +1,15 @@
+# Android / IDE / credentials
+**/.gradle/
+**/.idea/
+**/build/
+**/local.properties
+**/*.jks
+**/*.keystore
+android/app/google-services.json
+# Website build files and server credentials
+**/node_modules/
+site/dist/
+**/.env
+**/.env.*
+!**/.env.example
+*.log
