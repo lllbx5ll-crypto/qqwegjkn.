@@ -1,0 +1,15 @@
+name = "nexbots-story-cleaner"
+main = "worker.js"
+compatibility_date = "2026-10-20"
+
+[vars]
+FIREBASE_PROJECT_ID = "exbots"
+# Firebase's PUBLIC Web API key (not a service-account secret).
+FIREBASE_WEB_API_KEY = "AIzaSyCRXKLCjTyTfwxDWN4qGvDVaFyw3xGFS0I"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "nexbots-files"
+
+[triggers]
+crons = ["*/15 * * * *"]

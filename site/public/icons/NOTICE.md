@@ -1,0 +1,1 @@
+Brand icons are based on Font Awesome Free brand icons, License CC BY 4.0: https://fontawesome.com/license/free. The Google G mark is bundled locally as a multi-colour vector. Product trademarks are the property of their respective owners. Icon inclusion does not imply endorsement.
