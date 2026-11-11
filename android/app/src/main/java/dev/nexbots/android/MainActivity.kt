@@ -207,8 +207,13 @@ class MainActivity : ComponentActivity() {
                 // Preserve MIME filters and multiple-selection support.
                 val picker = if (params.mode == FileChooserParams.MODE_OPEN ||
                     params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                    // WebView can return one comma-separated accept entry
+                    // (e.g. "video/mp4,.mp4" or "image/png,image/jpeg").
+                    // Passing that entire string as Intent.type is invalid.
                     val types = params.acceptTypes
-                        .filter { it.isNotBlank() && it.contains('/') }.distinct()
+                        .flatMap { it.split(',') }.map { it.trim() }
+                        .filter { it.matches(Regex("^[a-zA-Z0-9*+._-]+/[a-zA-Z0-9*+._-]+$")) }
+                        .distinct()
                     Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
