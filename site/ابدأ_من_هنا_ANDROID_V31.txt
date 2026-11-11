@@ -1,0 +1,15 @@
+NEXBOTS Android v3.1
+====================
+
+الملفات المقدمة:
+1) NEXBOTS_ANDROID_V3_1_SOURCE.zip: مشروع أندرويد أصلي داخل Android Studio. لم يُبنَ APK لأن معلومات Firebase وAndroid SDK الخاصة بالتطبيق غير متوفرة هنا.
+2) NEXBOTS_SITE_V3_1_PATCH.zip: ملفات التعديل فقط لموقع NEXBOTS الحالي v2.9.1.
+3) NEXBOTS_SITE_V3_1_FULL.zip: مشروع الموقع كاملاً بعد تحديثات Android.
+
+الترتيب:
+1. استخرج مصدر أندرويد في حاسوبك وابدأ إعداد Google Sign-In وFirebase FCM وفق README_ANDROID_STUDIO_AR.md.
+2. أنشئ KV binding وFCM secret على Cloudflare وفق SETUP_PUSH_CLOUDFLARE_AR.md في ملفات الموقع.
+3. حدّث ونشر موقعك على Cloudflare، دون تعديل إعدادات R2 وقواعد Firestore السابقة.
+4. افتح Android Studio وأنتج APK تجريبياً، أو استخدم GitHub Actions بعد إضافة الأسرار الخاصة. اختبره على جهاز فعلي قبل التوزيع.
+
+ملحوظة: تحديث صفحات الموقع يتم عند الاتصال بالشبكة دون إعادة تنزيل APK؛ تحديث كود أندرويد الأصلي يتطلب APK جديداً.

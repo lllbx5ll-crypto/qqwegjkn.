@@ -1,0 +1,20 @@
+NEXBOTS — مجتمع البوتات والأدوات البرمجية
+============================================
+
+هذه نسخة سورس موحدة للموقع + لوحة المالك + خدمة API.
+لا تحتاج خادم Worker منفصلاً: API تعمل ضمن Cloudflare Pages Functions.
+
+1) اقرأ README_AR.md للتعليمات الكاملة.
+2) افتح firestore.rules وانسخ محتواه كما هو إلى Firestore > Rules > Publish.
+   القواعد تسمح بقراءة الشات للمستخدمين المسجلين غير المحظورين فقط،
+   وتمنع أي كتابة مباشرة من المتصفح.
+3) ارفع المشروع إلى GitHub، ثم اربطه بـCloudflare Pages (Build: npm run build، Output: dist)
+   أو استخدم npm run deploy بعد npm install وnpx wrangler login.
+4) اربط R2 عبر FILES = nexbots-files (معد مسبقاً في wrangler.toml).
+5) أضف أسرار Firebase للخادم في Cloudflare Pages Secrets، وليس داخل كود المتصفح:
+   FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY.
+6) في Firebase Auth Authorized domains أضف رابط Pages الجديد.
+7) بعد النشر ادخل أول مرة بـGoogle من حساب المالك lllbx5ll@gmail.com.
+
+لا ترسل الملف السري لحساب الخدمة ولا محتوى المفتاح لأي شخص في المحادثة.
+هذه حزمة سورس؛ يحتاج النشر الحقيقي واختبارات تكامل على Firebase وR2 قبل إعلان الإطلاق.

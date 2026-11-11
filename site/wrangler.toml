@@ -1,0 +1,13 @@
+name = "nexbots"
+compatibility_date = "2026-10-20"
+pages_build_output_dir = "./dist"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "nexbots-files"
+
+[vars]
+FIREBASE_PROJECT_ID = "exbots"
+OWNER_EMAIL = "lllbx5ll@gmail.com"
+FIREBASE_WEB_API_KEY = "AIzaSyCRXKLCjTyTfwxDWN4qGvDVaFyw3xGFS0I"
+

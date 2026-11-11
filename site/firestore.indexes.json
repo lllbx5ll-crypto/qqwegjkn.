@@ -1,0 +1,9 @@
+{
+  "indexes": [
+    {"collectionGroup":"projects","queryScope":"COLLECTION","fields":[
+      {"fieldPath":"authorId","order":"ASCENDING"},
+      {"fieldPath":"status","order":"ASCENDING"}
+    ]}
+  ],
+  "fieldOverrides": []
+}

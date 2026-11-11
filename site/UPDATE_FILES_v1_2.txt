@@ -1,0 +1,25 @@
+NEXBOTS v1.2 — واجهة مستقرة وأيقونات حقيقية
+
+هذا الملف يحتوي على ملفات التحديث فقط.
+ارفع محتوياته إلى الجذر الرئيسي لمستودع GitHub NEXBOTS، مع الحفاظ على أسماء المجلدات.
+لا ترفع ZIP نفسه إلى GitHub.
+ملف firestore.rules وملف wrangler.toml لم يتغيرا في هذا التحديث.
+تأكد بعد Commit من نجاح النشر التلقائي على Cloudflare.
+
+ملفات التحديث:
+README_AR.md
+public/icons/NOTICE.md
+public/icons/code.svg
+public/icons/google.svg
+public/icons/instagram.svg
+public/icons/javascript.svg
+public/icons/php.svg
+public/icons/python.svg
+public/icons/telegram.svg
+public/icons/whatsapp.svg
+public/nexbots-logo.webp
+src/App.jsx
+src/lib.js
+src/main.jsx
+src/styles.css
+tests/ui-safety.test.js
