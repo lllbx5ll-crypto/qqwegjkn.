@@ -15,12 +15,32 @@ test('native Android points to live NEXBOTS web origin for dynamic site changes'
  assert.match(source,/setOf\(base\)/); // restricted JS message origin
 });
 
-test('offline shell has local navigation but no private or network data',()=>{
+test('native offline fallback never masquerades as cached user data',()=>{
  const html=read('android/app/src/main/assets/offline.html');
- for(const route of ['/explore','/chat','/private','/account'])assert.ok(html.includes(`data-section="${route}"`));
- assert.match(html,/id="retry"/);
- assert.match(html,/تعذّر تنفيذ العملية دون اتصال/);
+ assert.match(html,/NEXBOTS/);
+ assert.match(html,/id="open"/);
+ assert.match(html,/https:\/\/nexbots\.pages\.dev/);
+ assert.doesNotMatch(html,/data-section=/);
  assert.doesNotMatch(html,/fetch\(|localStorage|indexedDB|\/api\/private/);
+});
+test('Android preserves the actual NEXBOTS WebView when connectivity is lost',()=>{
+ const activity=read('android/app/src/main/java/dev/nexbots/android/MainActivity.kt');
+ const lost=activity.slice(activity.indexOf('override fun onLost'),activity.indexOf('override fun onCapabilitiesChanged'));
+ assert.doesNotMatch(lost,/showOffline\(\)/);
+ assert.match(activity,/renderedWebsite/);
+ assert.match(activity,/LOAD_CACHE_ELSE_NETWORK/);
+ assert.match(activity,/last_page_path/);
+ assert.match(activity,/pathFromIntent\(intent\)/);
+});
+test('verified shared links open the native app using only official HTTPS routes',()=>{
+ const activity=read('android/app/src/main/java/dev/nexbots/android/MainActivity.kt');
+ const manifest=read('android/app/src/main/AndroidManifest.xml');
+ assert.match(manifest,/android:autoVerify="true"/);
+ assert.match(manifest,/android:pathPrefix="\/u\/"/);
+ assert.match(manifest,/android:pathPrefix="\/project\/"/);
+ assert.match(activity,/url\.scheme != "https" \|\| url\.host != domain/);
+ assert.match(activity,/shareNativeLink\(payload\)/);
+ assert.match(activity,/Intent\.ACTION_SEND/);
 });
 
 test('native network fallback and top-screen failure banners are present',()=>{
