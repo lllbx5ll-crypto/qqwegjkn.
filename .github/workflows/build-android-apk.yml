@@ -15,7 +15,6 @@ permissions:
 jobs:
   check-website:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -114,23 +113,6 @@ jobs:
         run: |
           gradle --no-daemon --stacktrace assembleDebug
 
-      - name: Show signing fingerprints
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          KEY="app/debug.keystore"
-
-          if [[ ! -f "$KEY" ]]; then
-            KEY="$HOME/.android/debug.keystore"
-          fi
-
-          keytool -list -v \
-            -alias androiddebugkey \
-            -keystore "$KEY" \
-            -storepass android \
-            | grep -E 'SHA1:|SHA256:'
-
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
@@ -138,3 +120,25 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Show signing fingerprints
+        continue-on-error: true
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [[ ! -f "$APK" ]]; then
+            echo "APK not found"
+            exit 0
+          fi
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" \
+            -type f -name apksigner \
+            | sort -V | tail -n 1)"
+
+          if [[ -n "$APKSIGNER" ]]; then
+            "$APKSIGNER" verify --print-certs "$APK" \
+              | grep -Ei 'SHA-1|SHA-256|SHA1|SHA256' || true
+          else
+            echo "Fingerprint tool not found"
+          fi
